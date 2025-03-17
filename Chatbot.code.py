@@ -7,25 +7,20 @@ import re
 import os
 from difflib import get_close_matches
 import streamlit as st
+import kagglehub
+path = kagglehub.dataset_download("niksaurabh/doctors-speciality")
 
-# Manually create the dataset of doctors
-data = {
-    "Doctor's Name": [
-        "Dr. David Brisman, DMD", "Dr. D. Timothy Culotta, DDS", "Dr. Oleg Goncharov, DDS", 
-        "Dr. Alfred Ho, DDS", "Dr. Christopher Perez, DMD",  # Dentists
-        "Dr. Aleksey Lazarev, MD", "Dr. Imran Ashraf, MD", "Dr. Roman Isaac, MD"  # Orthopedic Surgeons
-    ],
-    "speciality": [
-        "Dentist", "Dentist", "Dentist", "Dentist", "Dentist",  # Dentists
-        "Orthopedic Surgeon", "Orthopedic Surgeon", "Orthopedic Surgeon"  # Orthopedic Surgeons
-    ]
-}
+print("Path to dataset files:", path)
 
-# Create DataFrame
-df = pd.DataFrame(data)
+# Load the dataset into a Pandas DataFrame
+csv_files = [file for file in os.listdir(path) if file.endswith('.csv')]
+
+if csv_files:
+    file_path = os.path.join(path, csv_files[0])
+    df = pd.read_csv(file_path)
 
 # Dictionary to store doctors by specialty
-doctors_by_specialty = df.groupby('speciality')["Doctor's Name"].apply(list).to_dict()
+doctors_by_specialty = df.groupby('speciality')['Doctor\'s Name'].apply(list).to_dict()
 
 # Mapping of symptoms to specialties
 symptom_to_specialty = {
@@ -36,7 +31,30 @@ symptom_to_specialty = {
     "eye pain": "Ophthalmologist",
     "toothache": "Dentist",
     "joint pain": "Orthopedic",
-    "stomach pain": "Gastroenterologist"
+    "stomach pain": "Gastroenterologist",
+    "headache": "Neurologist",
+    "dizziness": "Neurologist",
+    "back pain": "Orthopedic",
+    "sore throat": "ENT Specialist",
+    "ear pain": "ENT Specialist",
+    "runny nose": "ENT Specialist",
+    "nausea": "Gastroenterologist",
+    "vomiting": "Gastroenterologist",
+    "fatigue": "General Physician",
+    "insomnia": "Psychiatrist",
+    "anxiety": "Psychiatrist",
+    "depression": "Psychiatrist",
+    "abdominal pain": "Gastroenterologist",
+    "high blood pressure": "Cardiologist",
+    "vision problems": "Ophthalmologist",
+    "knee pain": "Orthopedic",
+    "skin infection": "Dermatologist",
+    "breathing difficulty": "Pulmonologist",
+    "urinary problems": "Urologist",  # Added
+    "childhood illness": "Pediatrician",  # Added
+    "nerve pain": "Neurologist",   # Added
+    "acne": "Dermatologist",  # Added
+    "hearing loss": "ENT Specialist" #Added
 }
 
 # Initialize session state for appointments and user appointments
@@ -66,7 +84,6 @@ def validate_mobile(mobile):
     return re.match(r'^\d{10}$', mobile) is not None
 
 def validate_name(name):
-    # Only allow alphabets and spaces
     return re.match(r'^[A-Za-z\s]+$', name) is not None
 
 def parse_date(date_str):
@@ -157,9 +174,6 @@ def handle_chat():
                 st.session_state["step"] = "options"
                 st.session_state["messages"].append({"role": "user", "content": user_input})
                 st.session_state["messages"].append({"role": "assistant", "content": "Returning to the main menu. Please choose an option by typing the number:\n1. Book Appointment\n2. Reschedule Appointment\n3. Cancel Appointment\n4. Medical Info\n5. Exit"})
-            elif not validate_name(user_input):
-                st.session_state["messages"].append({"role": "user", "content": user_input})
-                st.session_state["messages"].append({"role": "assistant", "content": "Invalid name. Please use only alphabets and spaces."})
             else:
                 st.session_state["appointment_details"]["name"] = user_input
                 st.session_state["step"] = "email"
@@ -172,16 +186,10 @@ def handle_chat():
                 st.session_state["messages"].append({"role": "user", "content": user_input})
                 st.session_state["messages"].append({"role": "assistant", "content": "Returning to the previous step. What's your name?"})
             else:
-                # Check if the email already has an appointment
-                if user_input in st.session_state["user_appointments"]:
-                    st.session_state["messages"].append({"role": "user", "content": user_input})
-                    st.session_state["messages"].append({"role": "assistant", "content": "You already have an existing appointment. Please reschedule or cancel it first."})
-                    st.session_state["step"] = "options"
-                else:
-                    st.session_state["appointment_details"]["email"] = user_input
-                    st.session_state["step"] = "mobile"
-                    st.session_state["messages"].append({"role": "user", "content": user_input})
-                    st.session_state["messages"].append({"role": "assistant", "content": "Great! What's your mobile number?"})
+                st.session_state["appointment_details"]["email"] = user_input
+                st.session_state["step"] = "mobile"
+                st.session_state["messages"].append({"role": "user", "content": user_input})
+                st.session_state["messages"].append({"role": "assistant", "content": "Great! What's your mobile number?"})
 
         elif st.session_state["step"] == "mobile":
             if user_input.lower() == "back":
@@ -438,78 +446,34 @@ Hospital Management
                 elif is_past_time(st.session_state["appointment_details"]["new_date"], parsed_new_time):
                     st.session_state["messages"].append({"role": "user", "content": user_input})
                     st.session_state["messages"].append({"role": "assistant", "content": "Cannot reschedule to a past time!"})
-                elif st.session_state["appointment_details"]["new_date"] == st.session_state["appointment_details"]["old_date"]:
-                    # Check if the new time is earlier than the old time
+                elif not is_time_slot_available(st.session_state["appointment_details"]["new_date"], parsed_new_time, st.session_state["appointment_details"]["doctor"]):
+                    st.session_state["messages"].append({"role": "user", "content": user_input})
+                    st.session_state["messages"].append({"role": "assistant", "content": "This time slot is already booked. Please choose another time."})
+                else:
                     old_time = None
                     for time, doc in st.session_state["appointments"].get(st.session_state["appointment_details"]["old_date"], {}).items():
                         if doc == st.session_state["appointment_details"]["doctor"]:
                             old_time = time
                             break
-                    if old_time and parsed_new_time < old_time:
-                        st.session_state["messages"].append({"role": "user", "content": user_input})
-                        st.session_state["messages"].append({"role": "assistant", "content": "Cannot reschedule to an earlier time on the same date."})
-                    else:
-                        st.session_state["appointment_details"]["appointment_time"] = parsed_new_time
-                        st.session_state["step"] = "confirm_reschedule"
-                        st.session_state["messages"].append({"role": "user", "content": user_input})
-                        st.session_state["messages"].append({"role": "assistant", "content": "Great! Here are your rescheduled appointment details:"})
-                        st.session_state["messages"].append({"role": "assistant", "content": f"Doctor: {st.session_state['appointment_details']['doctor']}"})
-                        st.session_state["messages"].append({"role": "assistant", "content": f"New Date: {st.session_state['appointment_details']['new_date']}"})
-                        st.session_state["messages"].append({"role": "assistant", "content": f"New Time: {parsed_new_time}"})
-                        st.session_state["messages"].append({"role": "assistant", "content": "Type 'confirm' to reschedule the appointment or 'back' to go back."})
-                elif not is_time_slot_available(st.session_state["appointment_details"]["new_date"], parsed_new_time, st.session_state["appointment_details"]["doctor"]):
-                    st.session_state["messages"].append({"role": "user", "content": user_input})
-                    st.session_state["messages"].append({"role": "assistant", "content": "This time slot is already booked. Please choose another time."})
-                else:
-                    st.session_state["appointment_details"]["appointment_time"] = parsed_new_time
-                    st.session_state["step"] = "confirm_reschedule"
-                    st.session_state["messages"].append({"role": "user", "content": user_input})
-                    st.session_state["messages"].append({"role": "assistant", "content": "Great! Here are your rescheduled appointment details:"})
-                    st.session_state["messages"].append({"role": "assistant", "content": f"Doctor: {st.session_state['appointment_details']['doctor']}"})
-                    st.session_state["messages"].append({"role": "assistant", "content": f"New Date: {st.session_state['appointment_details']['new_date']}"})
-                    st.session_state["messages"].append({"role": "assistant", "content": f"New Time: {parsed_new_time}"})
-                    st.session_state["messages"].append({"role": "assistant", "content": "Type 'confirm' to reschedule the appointment or 'back' to go back."})
 
-        elif st.session_state["step"] == "confirm_reschedule":
-            if user_input.lower() == "back":
-                st.session_state["step"] = "reschedule_time"
-                st.session_state["messages"].append({"role": "user", "content": user_input})
-                st.session_state["messages"].append({"role": "assistant", "content": "Returning to the previous step. What time would you like to reschedule the appointment? (HH:MM AM/PM)"})
-            elif user_input.lower() == "confirm":
-                email = st.session_state["appointment_details"]["email"]
-                selected_doctor = st.session_state["appointment_details"]["doctor"]
-                parsed_new_date = st.session_state["appointment_details"]["new_date"]
-                parsed_new_time = st.session_state["appointment_details"]["appointment_time"]
+                    st.session_state["appointments"][st.session_state["appointment_details"]["old_date"]].pop(old_time, None)
+                    st.session_state["appointments"].setdefault(st.session_state["appointment_details"]["new_date"], {})[parsed_new_time] = st.session_state["appointment_details"]["doctor"]
+                    st.session_state["user_appointments"][st.session_state["appointment_details"]["email"]].remove((st.session_state["appointment_details"]["old_date"], st.session_state["appointment_details"]["doctor"]))
+                    st.session_state["user_appointments"][st.session_state["appointment_details"]["email"]].add((st.session_state["appointment_details"]["new_date"], st.session_state["appointment_details"]["doctor"]))
 
-                # Remove the old appointment
-                old_time = None
-                for time, doc in st.session_state["appointments"].get(st.session_state["appointment_details"]["old_date"], {}).items():
-                    if doc == selected_doctor:
-                        old_time = time
-                        break
-                if old_time:
-                    del st.session_state["appointments"][st.session_state["appointment_details"]["old_date"]][old_time]
+                    st.session_state["messages"].append({"role": "assistant", "content": "Appointment rescheduled successfully! Confirmation email sent."})
+                    reschedule_body = f"""Hello,
 
-                # Add the new appointment
-                st.session_state["appointments"].setdefault(parsed_new_date, {})[parsed_new_time] = selected_doctor
-                st.session_state["user_appointments"][email].remove((st.session_state["appointment_details"]["old_date"], selected_doctor))
-                st.session_state["user_appointments"][email].add((parsed_new_date, selected_doctor))
+Your appointment with {st.session_state['appointment_details']['doctor']} has been rescheduled.
 
-                st.session_state["messages"].append({"role": "assistant", "content": "Appointment rescheduled successfully! Confirmation email sent."})
-                reschedule_body = f"""Hello,
-
-Your appointment with {selected_doctor} has been rescheduled.
-
-New Appointment Date: {parsed_new_date}
+New Appointment Date: {st.session_state['appointment_details']['new_date']}
 New Appointment Time: {parsed_new_time}
 
 Regards,
 Hospital Management
 """
-                send_email(email, "Appointment Rescheduled", reschedule_body)
-                st.session_state["step"] = None
-            else:
-                st.session_state["messages"].append({"role": "assistant", "content": "Invalid input. Type 'confirm' to reschedule the appointment or 'back' to go back."})
+                    send_email(st.session_state["appointment_details"]["email"], "Appointment Rescheduled", reschedule_body)
+                    st.session_state["step"] = None
 
         elif st.session_state["step"] == "cancel_email":
             if user_input.lower() == "back":
@@ -623,13 +587,14 @@ def main():
 
         /* Chat bubbles with gradients and animations */
         .stChatMessage {
-            background: linear-gradient(135deg, rgb(163, 190, 240), #c2e9fb);
-            border-radius: 20px;
-            padding: 15px;
-            margin: 10px 0;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-            animation: slideIn 0.5s ease-in-out;
-        }
+			 background: rgb(102, 153, 255); /* Softer gray for chat bubbles */
+			 color: #000000; /* Darker text for readability */
+			 border-radius: 15px;
+			 padding: 12px;
+			 margin: 8px 0;
+			 box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+			 animation: fadeIn 0.3s ease-in;
+		}
         @keyframes slideIn {
             from { opacity: 0; transform: translateX(-20px); }
             to { opacity: 1; transform: translateX(0); }
@@ -637,13 +602,14 @@ def main():
 
         /* User chat bubble */
         .user-message {
-            background: linear-gradient(135deg, #84fab0, #8fd3f4);
-            border-radius: 20px;
-            padding: 15px;
-            margin: 10px 0;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-            animation: slideIn 0.5s ease-in-out;
-        }
+		    background: linear-gradient(135deg, #007bff, #0056b3); /* Blue gradient for user */
+            color: #ffffff; /* White text for contrast */
+            border-radius: 15px;
+            padding: 12px;
+            margin: 8px 0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            animation: fadeIn 0.3s ease-in;
+		}
 
         /* Typing animation for chatbot */
         .typing {
